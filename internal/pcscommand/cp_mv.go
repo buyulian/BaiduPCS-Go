@@ -3,8 +3,9 @@ package pcscommand
 import (
 	"fmt"
 	"github.com/iikira/BaiduPCS-Go/baidupcs"
-	"github.com/iikira/BaiduPCS-Go/pcspath"
+	"github.com/iikira/BaiduPCS-Go/baidupcs/pcserror"
 	"path"
+	"strings"
 )
 
 // RunCopy 执行 批量拷贝文件/目录
@@ -26,18 +27,16 @@ func runCpMvOp(op string, paths ...string) {
 
 	froms, to := cpmvParsePath(paths...) // 分割
 
-	froms, err = getAllAbsPaths(froms...)
+	froms, err = matchPathByShellPattern(froms...)
 	if err != nil {
-		fmt.Printf("解析路径出错, %s\n", err)
+		fmt.Println(err)
 		return
 	}
-
-	pcsPath := pcspath.NewPCSPath(&GetActiveUser().Workdir, to)
-	to = pcsPath.AbsPathNoMatch()
+	to = GetActiveUser().PathJoin(to)
 
 	// 尝试匹配
-	if patternRE.MatchString(to) {
-		tos, _ := getAllAbsPaths(to)
+	if strings.ContainsAny(to, baidupcs.ShellPatternCharacters) {
+		tos, _ := matchPathByShellPattern(to)
 
 		switch len(tos) {
 		case 0:
@@ -45,7 +44,7 @@ func runCpMvOp(op string, paths ...string) {
 		case 1:
 			to = tos[0]
 		default:
-			fmt.Printf("目标目录有 %d 条匹配结果, 请检查通配符", len(tos))
+			fmt.Printf("目标目录有 %d 条匹配结果, 请检查通配符\n", len(tos))
 			return
 		}
 	}
@@ -55,7 +54,7 @@ func runCpMvOp(op string, paths ...string) {
 	switch {
 	case toInfo != nil && toInfo.Path != to:
 		fallthrough
-	case pcsError != nil && pcsError.ErrorType() == baidupcs.ErrTypeRemoteError:
+	case pcsError != nil && pcsError.GetErrType() == pcserror.ErrTypeRemoteError:
 		// 判断路径是否存在
 		// 如果不存在, 则为重命名或同目录拷贝操作
 
@@ -90,7 +89,7 @@ func runCpMvOp(op string, paths ...string) {
 			fmt.Printf("%s -> %s\n", froms[0], to)
 		}
 		return
-	case pcsError != nil && pcsError.ErrorType() != baidupcs.ErrTypeRemoteError:
+	case pcsError != nil && pcsError.GetErrType() != pcserror.ErrTypeRemoteError:
 		fmt.Println(pcsError)
 		return
 	}
@@ -105,7 +104,7 @@ func runCpMvOp(op string, paths ...string) {
 	for k := range froms {
 		cj.List[k] = &baidupcs.CpMvJSON{
 			From: froms[k],
-			To:   path.Clean(to + "/" + path.Base(froms[k])),
+			To:   path.Clean(to + baidupcs.PathSeparator + path.Base(froms[k])),
 		}
 	}
 
